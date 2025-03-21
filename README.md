@@ -1,4 +1,17 @@
 # pdf417decoder
+
+This is a (hopefully temporary) fork of the python
+[pdf417decoder](https://github.com/sparkfish/pdf417decoder) that adds
+support for MacroPDF, aka the ability to decode files that have been
+split over multiple barcodes.
+
+It works for me and as soon as feel it is tested enough and the API is
+right I will try and get it merged back into the main repository.
+
+One issue right now is to have a good public test image with multiple
+barcodes.
+
+## Original Description
 ![Image of a PDF417 barcode](https://raw.githubusercontent.com/sparkfish/pdf417decoder/dev/python/images/haiku.png?id=1)
 
 pdf417decoder is a pure Python library for decoding [PDF417 barcodes](https://en.wikipedia.org/wiki/PDF417).
