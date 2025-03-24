@@ -171,6 +171,64 @@ class PDF417Decoder:
 
         return barcodes_count
 
+    @staticmethod
+    def assemble_data(info_list):
+        """
+        Assembles data from a list of barcode information objects.
+        This assumes the info_list represents a single file, though the
+        segments may be in any order.
+
+        Args:
+            info_list (list): A list of barcode information objects.
+
+        Returns:
+            bytes: The assembled data as a bytearray.
+
+        Raises:
+            ValueError: If there are inconsistencies in file ID, segment count, or duplicate segments.
+        """
+        data = bytearray()
+        file_id = None
+        file_name = None
+        segment_count = None
+        if not info_list:
+            return data # Return empty bytearray if info_list is empty
+        segments = [None] * len(info_list)
+
+        for info in info_list:
+            if info.macro_file_id:
+                if file_id is None:
+                    file_id = info.macro_file_id
+                elif file_id != info.macro_file_id:
+                    raise ValueError(f"File ID mismatch: {file_id} != {info.macro_file_id}")
+            if info.macro_file_name:
+                if file_name is None:
+                    file_name = info.macro_file_name
+
+            if info.macro_segment_count:
+                if segment_count is None:
+                    segment_count = info.macro_segment_count
+                    if segment_count != len(segments):
+                        raise ValueError(f"Segment count mismatch: {segment_count} != {len(segments)}")
+                elif segment_count != info.macro_segment_count:
+                    raise ValueError(f"Segment count mismatch: {segment_count} != {info.macro_segment_count}")
+            if info.macro_segment is None:
+                index = 0
+            else:
+                index = info.macro_segment
+
+            if segments[index] is not None:
+                raise ValueError(f"Duplicate segment: {index}")
+
+            segments[index] = info.barcode_data
+
+        for segment in segments:
+            if segment is None:
+                raise ValueError("Missing segment in barcode data.")
+            data.extend(segment)
+        return data
+
+
     def barcode_data_index_to_string(self, index: int) -> str:
         """Convert binary data to string for one result"""
         
