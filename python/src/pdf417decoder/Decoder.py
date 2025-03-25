@@ -185,7 +185,6 @@ class PDF417Decoder:
         return decoded
 
     def locate_barcodes(self) -> bool:
-        self.bar_pos = list([0] * self.image_width)
         self.barcode_list = list()
         
         start_symbols = list()
@@ -194,6 +193,7 @@ class PDF417Decoder:
         scan = 0
         
         while (True):
+            self.bar_pos = list([0] * self.image_width)
             for row in range(self.image_height):
                 # scan the line for array of bars
                 if (not self.scan_line(row)):
@@ -227,11 +227,12 @@ class PDF417Decoder:
                     for stop_list in stop_symbols:
                         self.match_start_and_stop(start_list, stop_list)
 
-            if (len(self.barcode_list) > 0 or scan == 1):
+            if (len(self.barcode_list) > 0 or scan == 4):
                 break
             
-            # rotate image by 180 degrees and try again
-            self.rotate_image_by_180()
+            # rotate image by 90 degrees and try again
+            self.image_matrix = np.rot90(self.image_matrix)
+            self.image_width, self.image_height = self.image_height, self.image_width
             start_symbols.clear()
             stop_symbols.clear()
             self.barcode_list.clear()
@@ -239,19 +240,6 @@ class PDF417Decoder:
             scan += 1
 
         return len(self.barcode_list) > 0
-
-    def rotate_image_by_180(self):
-        """ Rotate image by 180 degrees """
-        last_row = self.image_height
-        last_col = self.image_width - 1
-        rev_image_matrix = np.zeros((self.image_height, self.image_width), dtype=bool)
-        
-        for row in range(self.image_height):
-            last_row -= 1
-            for col in range(self.image_width):
-                rev_image_matrix[row, col] = self.image_matrix[last_row, last_col - col]
-
-        self.image_matrix = rev_image_matrix
 
     def scan_line(self, row: int) -> bool:
         """Convert image line to black and white bars"""
