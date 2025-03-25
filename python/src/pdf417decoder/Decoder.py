@@ -39,6 +39,8 @@ class PDF417Decoder:
     SWITCH_TO_NUMERIC_MODE = 902
     SHIFT_TO_BYTE_MODE = 913
     SWITCH_TO_BYTE_MODE_FOR_SIX = 924
+    START_MACRO_PDF417_CONTROL_BLOCK = 928
+    MACRO_PDF417_OPTION = 923
 
     #  User-Defined GLis:
     # Codeword 925 followed by one codeword
@@ -116,6 +118,10 @@ class PDF417Decoder:
             self.barcode_binary_data = None
             self.barcodes_data = None
             self.barcodes_info = None
+            self.macro_segment = None
+            self.macro_file_id = None
+            self.macro_file_name = None
+            self.macro_segment_count = None
             
             self.average_symbol_width = barcode_area.average_symbol_width
             self.max_symbol_error = barcode_area.max_symbol_error
@@ -134,7 +140,7 @@ class PDF417Decoder:
 
             if (not self.codewords_to_data()): # convert codewords to bytes and text
                 continue
-            
+
             result = BarcodeInfo()
             result.barcode_data = self.barcode_binary_data
             result.character_set = self.global_label_id_character_set
@@ -145,6 +151,10 @@ class PDF417Decoder:
             result.data_rows = self.data_rows
             result.error_correction_length = self.error_correction_length
             result.error_correction_count = self.error_correction_count
+            result.macro_segment = self.macro_segment
+            result.macro_file_id = self.macro_file_id
+            result.macro_file_name = self.macro_file_name
+            result.macro_segment_count = self.macro_segment_count
             self.barcodes_extra_info_list.append(result)
             
         barcodes_count = len(self.barcodes_extra_info_list)
@@ -1004,7 +1014,8 @@ class PDF417Decoder:
             # load codeword at current pointer
             command = self.codewords[self.codewords_ptr]
             self.codewords_ptr += 1
-
+            
+            
             # for the first time this codeword can be data
             if (command < 900):
                 command = self.SWITCH_TO_TEXT_MODE
@@ -1078,7 +1089,31 @@ class PDF417Decoder:
                     return False
                 
                 self.global_label_id_user_defined = 810900 + g4
+            elif (command == self.START_MACRO_PDF417_CONTROL_BLOCK):
+                segment_data = bytearray()
+                if (not seg_len > 2):
+                    print("Macro PDF417 Control Block segment length error")
+                    return False
+                self.codewords_to_numeric(segment_data, 2)
+                self.macro_segment = int(segment_data)
+                file_id = bytearray()
+                self.codewords_to_bytes(file_id, seg_len - 2, False)
+                self.macro_file_id = file_id
+            elif (command == self.MACRO_PDF417_OPTION):
+                g1 = self.codewords[self.codewords_ptr]
+                self.codewords_ptr += 1
+                if (g1 == 0):
+                    name_data = bytearray()
+                    self.codewords_to_text(name_data, seg_len - 1)
+                    self.macro_file_name = self.binary_data_to_string(name_data)
+                elif (g1 == 1):
+                    segment_data = bytearray()
+                    self.codewords_to_numeric(segment_data, seg_len - 1)
+                    self.macro_segment_count = int(segment_data)
+                else:
+                    print("Unknown Macro PDF417 Option %d" % g1)                                    
             else:
+                print("Unknown command %d" % command)
                 return False
 
         self.barcode_binary_data = binary_data
@@ -1146,6 +1181,8 @@ class PDF417Decoder:
 
     def convert_image(self) -> bool:
         """ Convert image to black and white boolean matrix """
+        self.image_width = self.input_image.width
+        self.image_height = self.input_image.height
         
         np_image = np.array(self.input_image)
         if (len(np_image.shape) > 2):
