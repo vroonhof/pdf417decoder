@@ -41,6 +41,7 @@ class PDF417Decoder:
     SWITCH_TO_BYTE_MODE_FOR_SIX = 924
     START_MACRO_PDF417_CONTROL_BLOCK = 928
     MACRO_PDF417_OPTION = 923
+    MACRO_PDF417_TERMINATOR = 922
 
     #  User-Defined GLis:
     # Codeword 925 followed by one codeword
@@ -121,6 +122,7 @@ class PDF417Decoder:
             self.macro_segment = None
             self.macro_file_id = None
             self.macro_file_name = None
+            self.macro_is_last = None
             self.macro_segment_count = None
             
             self.average_symbol_width = barcode_area.average_symbol_width
@@ -154,6 +156,7 @@ class PDF417Decoder:
             result.macro_segment = self.macro_segment
             result.macro_file_id = self.macro_file_id
             result.macro_file_name = self.macro_file_name
+            result.macro_is_last = self.macro_is_last
             result.macro_segment_count = self.macro_segment_count
             self.barcodes_extra_info_list.append(result)
             
@@ -216,12 +219,17 @@ class PDF417Decoder:
                 index = 0
             else:
                 index = info.macro_segment
+                if index == len(segments) -1 and not info.macro_is_last:
+                    # Not actually needed for decoding, but for now this helps validate encoders
+                    raise ValueError("Macro PDF417 missing terminator")
+                    
 
             if segments[index] is not None:
                 raise ValueError(f"Duplicate segment: {index}")
 
             segments[index] = info.barcode_data
 
+            
         for segment in segments:
             if segment is None:
                 raise ValueError("Missing segment in barcode data.")
@@ -1087,6 +1095,8 @@ class PDF417Decoder:
             seg_len = seg_end - self.codewords_ptr
             
             if (seg_len == 0):
+                if (command == self.MACRO_PDF417_TERMINATOR):
+                    self.macro_is_last = True
                 continue
             
             if (command == self.SWITCH_TO_BYTE_MODE):
