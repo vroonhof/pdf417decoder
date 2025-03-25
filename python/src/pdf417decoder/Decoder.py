@@ -39,6 +39,9 @@ class PDF417Decoder:
     SWITCH_TO_NUMERIC_MODE = 902
     SHIFT_TO_BYTE_MODE = 913
     SWITCH_TO_BYTE_MODE_FOR_SIX = 924
+    START_MACRO_PDF417_CONTROL_BLOCK = 928
+    MACRO_PDF417_OPTION = 923
+    MACRO_PDF417_TERMINATOR = 922
 
     #  User-Defined GLis:
     # Codeword 925 followed by one codeword
@@ -116,6 +119,11 @@ class PDF417Decoder:
             self.barcode_binary_data = None
             self.barcodes_data = None
             self.barcodes_info = None
+            self.macro_segment = None
+            self.macro_file_id = None
+            self.macro_file_name = None
+            self.macro_is_last = None
+            self.macro_segment_count = None
             
             self.average_symbol_width = barcode_area.average_symbol_width
             self.max_symbol_error = barcode_area.max_symbol_error
@@ -134,7 +142,7 @@ class PDF417Decoder:
 
             if (not self.codewords_to_data()): # convert codewords to bytes and text
                 continue
-            
+
             result = BarcodeInfo()
             result.barcode_data = self.barcode_binary_data
             result.character_set = self.global_label_id_character_set
@@ -145,6 +153,11 @@ class PDF417Decoder:
             result.data_rows = self.data_rows
             result.error_correction_length = self.error_correction_length
             result.error_correction_count = self.error_correction_count
+            result.macro_segment = self.macro_segment
+            result.macro_file_id = self.macro_file_id
+            result.macro_file_name = self.macro_file_name
+            result.macro_is_last = self.macro_is_last
+            result.macro_segment_count = self.macro_segment_count
             self.barcodes_extra_info_list.append(result)
             
         barcodes_count = len(self.barcodes_extra_info_list)
@@ -160,6 +173,69 @@ class PDF417Decoder:
                 self.barcodes_data.append(self.barcodes_info[i].barcode_data)
 
         return barcodes_count
+
+    @staticmethod
+    def assemble_data(info_list):
+        """
+        Assembles data from a list of barcode information objects.
+        This assumes the info_list represents a single file, though the
+        segments may be in any order.
+
+        Args:
+            info_list (list): A list of barcode information objects.
+
+        Returns:
+            bytes: The assembled data as a bytearray.
+
+        Raises:
+            ValueError: If there are inconsistencies in file ID, segment count, or duplicate segments.
+        """
+        data = bytearray()
+        file_id = None
+        file_name = None
+        segment_count = None
+        if not info_list:
+            return data # Return empty bytearray if info_list is empty
+        segments = [None] * len(info_list)
+
+        for info in info_list:
+            if info.macro_file_id:
+                if file_id is None:
+                    file_id = info.macro_file_id
+                elif file_id != info.macro_file_id:
+                    raise ValueError(f"File ID mismatch: {file_id} != {info.macro_file_id}")
+            if info.macro_file_name:
+                if file_name is None:
+                    file_name = info.macro_file_name
+
+            if info.macro_segment_count:
+                if segment_count is None:
+                    segment_count = info.macro_segment_count
+                    if segment_count != len(segments):
+                        raise ValueError(f"Segment count mismatch: {segment_count} != {len(segments)}")
+                elif segment_count != info.macro_segment_count:
+                    raise ValueError(f"Segment count mismatch: {segment_count} != {info.macro_segment_count}")
+            if info.macro_segment is None:
+                index = 0
+            else:
+                index = info.macro_segment
+                if index == len(segments) -1 and not info.macro_is_last:
+                    # Not actually needed for decoding, but for now this helps validate encoders
+                    raise ValueError("Macro PDF417 missing terminator")
+                    
+
+            if segments[index] is not None:
+                raise ValueError(f"Duplicate segment: {index}")
+
+            segments[index] = info.barcode_data
+
+            
+        for segment in segments:
+            if segment is None:
+                raise ValueError("Missing segment in barcode data.")
+            data.extend(segment)
+        return data
+
 
     def barcode_data_index_to_string(self, index: int) -> str:
         """Convert binary data to string for one result"""
@@ -1004,7 +1080,8 @@ class PDF417Decoder:
             # load codeword at current pointer
             command = self.codewords[self.codewords_ptr]
             self.codewords_ptr += 1
-
+            
+            
             # for the first time this codeword can be data
             if (command < 900):
                 command = self.SWITCH_TO_TEXT_MODE
@@ -1018,6 +1095,8 @@ class PDF417Decoder:
             seg_len = seg_end - self.codewords_ptr
             
             if (seg_len == 0):
+                if (command == self.MACRO_PDF417_TERMINATOR):
+                    self.macro_is_last = True
                 continue
             
             if (command == self.SWITCH_TO_BYTE_MODE):
@@ -1078,7 +1157,31 @@ class PDF417Decoder:
                     return False
                 
                 self.global_label_id_user_defined = 810900 + g4
+            elif (command == self.START_MACRO_PDF417_CONTROL_BLOCK):
+                segment_data = bytearray()
+                if (not seg_len > 2):
+                    print("Macro PDF417 Control Block segment length error")
+                    return False
+                self.codewords_to_numeric(segment_data, 2)
+                self.macro_segment = int(segment_data)
+                file_id = bytearray()
+                self.codewords_to_bytes(file_id, seg_len - 2, False)
+                self.macro_file_id = file_id
+            elif (command == self.MACRO_PDF417_OPTION):
+                g1 = self.codewords[self.codewords_ptr]
+                self.codewords_ptr += 1
+                if (g1 == 0):
+                    name_data = bytearray()
+                    self.codewords_to_text(name_data, seg_len - 1)
+                    self.macro_file_name = self.binary_data_to_string(name_data)
+                elif (g1 == 1):
+                    segment_data = bytearray()
+                    self.codewords_to_numeric(segment_data, seg_len - 1)
+                    self.macro_segment_count = int(segment_data)
+                else:
+                    print("Unknown Macro PDF417 Option %d" % g1)                                    
             else:
+                print("Unknown command %d" % command)
                 return False
 
         self.barcode_binary_data = binary_data
@@ -1146,6 +1249,8 @@ class PDF417Decoder:
 
     def convert_image(self) -> bool:
         """ Convert image to black and white boolean matrix """
+        self.image_width = self.input_image.width
+        self.image_height = self.input_image.height
         
         np_image = np.array(self.input_image)
         if (len(np_image.shape) > 2):
